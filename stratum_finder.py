@@ -577,6 +577,9 @@ def generate_summary_report(candidates: List[Dict[str, Any]], output_file: Optio
         print(report_text)
 
 
+DEFAULT_JOURNAL_DIR = Path.home() / "Saved Games" / "Frontier Developments" / "Elite Dangerous"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Find Stratum Tectonicas candidates in Elite Dangerous log files",
@@ -599,9 +602,12 @@ Examples:
     )
 
     # Input options
-    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group = parser.add_mutually_exclusive_group()
     input_group.add_argument('-f', '--file', help='Single log file to process')
-    input_group.add_argument('-d', '--directory', help='Directory containing log files')
+    input_group.add_argument('-d', '--directory',
+                             default=str(DEFAULT_JOURNAL_DIR),
+                             help=f'Directory containing log files '
+                                  f'(default: {DEFAULT_JOURNAL_DIR})')
 
     # Output options
     parser.add_argument('-o', '--output', required=True,
