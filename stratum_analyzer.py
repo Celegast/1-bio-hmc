@@ -540,6 +540,88 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
     print("Distribution plots completed")
 
 
+def generate_age_histogram(data: List[Dict[str, Any]],
+                           output_dir: str = "stratum_plots",
+                           bin_width_my: int = 1000) -> None:
+    """
+    Generate a grouped bar chart of Stratum vs Bacterium counts by system age.
+
+    Bodies are binned into groups of bin_width_my million years. Each bin
+    shows two bars side by side: one for Stratum, one for Bacterium (all
+    other confirmed genera are stacked into an 'Other' segment on the
+    Bacterium bar so the chart stays readable).
+    """
+    Path(output_dir).mkdir(exist_ok=True)
+
+    # Collect counts per bin and genus
+    stratum_bins: dict = {}
+    bacterium_bins: dict = {}
+    other_bins: dict = {}
+
+    for entry in data:
+        age = entry.get('system_age_my')
+        if age is None:
+            continue
+        bin_label = int(age // bin_width_my) * bin_width_my
+        genus = entry.get('genus', 'Unknown')
+        has_stratum = entry.get('HasStratum', False)
+
+        if has_stratum:
+            stratum_bins[bin_label] = stratum_bins.get(bin_label, 0) + 1
+        elif genus.lower() == 'bacterium':
+            bacterium_bins[bin_label] = bacterium_bins.get(bin_label, 0) + 1
+        else:
+            other_bins[bin_label] = other_bins.get(bin_label, 0) + 1
+
+    all_bins = sorted(set(stratum_bins) | set(bacterium_bins) | set(other_bins))
+    if not all_bins:
+        print("Warning: No age data available for age histogram")
+        return
+
+    x = np.arange(len(all_bins))
+    bar_width = 0.35
+
+    stratum_counts  = [stratum_bins.get(b, 0)  for b in all_bins]
+    bacterium_counts = [bacterium_bins.get(b, 0) for b in all_bins]
+    other_counts    = [other_bins.get(b, 0)    for b in all_bins]
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    bars_s = ax.bar(x - bar_width / 2, stratum_counts, bar_width,
+                    label='Stratum Tectonicas', color='dodgerblue', alpha=0.85,
+                    edgecolor='darkblue', linewidth=0.5)
+    bars_b = ax.bar(x + bar_width / 2, bacterium_counts, bar_width,
+                    label='Bacterium', color='lightcoral', alpha=0.85,
+                    edgecolor='darkred', linewidth=0.5)
+    # Stack 'Other' on top of Bacterium bars
+    if any(other_counts):
+        ax.bar(x + bar_width / 2, other_counts, bar_width,
+               bottom=bacterium_counts,
+               label='Other genus', color='wheat', alpha=0.85,
+               edgecolor='goldenrod', linewidth=0.5)
+
+    ax.set_xlabel('System Age (MY)', fontsize=12)
+    ax.set_ylabel('Number of Candidates', fontsize=12)
+    ax.set_title('Stratum vs Bacterium Candidates by System Age', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'{b//1000}k' if b >= 1000 else str(b) for b in all_bins],
+                       rotation=45, ha='right')
+    ax.legend()
+    ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+
+    # Annotate total count above each Stratum bar (skip zeros)
+    for bar, count in zip(bars_s, stratum_counts):
+        if count:
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                    str(count), ha='center', va='bottom', fontsize=8)
+
+    plt.tight_layout()
+    filepath = Path(output_dir) / "age_histogram.png"
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Age histogram saved: age_histogram.png")
+
+
 def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None) -> str:
     """Generate a comprehensive analysis report."""
     report_lines = []
@@ -677,11 +759,11 @@ def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None)
             analysis = analyses[feature]
             for result in analysis['results']:
                 if result['total'] >= 5 and result['stratum_percentage'] > 80:
-                    strong_indicators.append(f"• {analysis['feature_name']}: {result['value']} "
+                    strong_indicators.append(f"- {analysis['feature_name']}: {result['value']} "
                                            f"({result['stratum_percentage']:.1f}% Stratum rate)")
 
     if strong_indicators:
-        add_line("Strong positive indicators (>80% Stratum rate with ≥5 samples):")
+        add_line("Strong positive indicators (>80% Stratum rate with >=5 samples):")
         for indicator in strong_indicators[:5]:
             add_line(indicator, 1)
         add_line()
@@ -693,7 +775,7 @@ def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None)
             add_line("Materials most associated with Stratum:")
             for material in top_materials:
                 if material['difference'] > 0:
-                    add_line(f"• Higher {material['material']} content "
+                    add_line(f"- Higher {material['material']} content "
                            f"(+{material['difference']:.2f}% average)", 1)
             add_line()
 
@@ -748,6 +830,8 @@ Plot Features:
                        help='Skip correlation matrix generation')
     parser.add_argument('--no-distributions', action='store_true',
                        help='Skip distribution comparison plots')
+    parser.add_argument('--no-age-histogram', action='store_true',
+                       help='Skip Stratum/Bacterium by system age bar chart')
 
     args = parser.parse_args()
 
@@ -847,6 +931,10 @@ Plot Features:
             # Generate distribution plots
             if not args.no_distributions:
                 generate_distribution_plots(analyses, plot_data, args.plot_dir)
+
+        # Age histogram uses raw scan_data directly (not plot_data)
+        if not args.no_age_histogram:
+            generate_age_histogram(scan_data, args.plot_dir)
 
     print("\nAnalysis complete!")
 
