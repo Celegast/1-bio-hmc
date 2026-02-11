@@ -1,0 +1,36 @@
+# Output files
+*.txt
+!requirements.txt
+*.log
+*.json
+
+# Plot directories
+/plots*/
+
+# Archive
+/archive/
+
+# Unneeded scripts (kept in Observatory_Exports source only)
+bioinsights_processor.py
+pp_merits.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
