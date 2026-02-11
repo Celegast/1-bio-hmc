@@ -467,7 +467,7 @@ def print_simple_summary(candidates: List[Dict[str, Any]]):
             has_stratum = candidate.get('HasStratum', False)
             genus = candidate.get('genus', 'Unknown')
             #status = '✓ Stratum' if has_stratum else f'✗ {genus}'
-            status = '✓' if has_stratum else f'✗ {genus}'
+            status = '[Y]' if has_stratum else f'[N] {genus}'
             #print(f"  {body_name} ({system_name}) - {status}")
             print(f"  {body_name} - {status}")
 
