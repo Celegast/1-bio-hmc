@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ed-1bio-hmc"
+version = "0.1.0"
+description = "Find and analyze 1-bio High Metal Content worlds in Elite Dangerous"
+requires-python = ">=3.12"
+dependencies = [
+    "icecream",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "seaborn",
+]
+
+[project.scripts]
+stratum-finder   = "stratum_finder:main"
+stratum-analyzer = "stratum_analyzer:main"
+stratum-filter   = "stratum_log_filter:main"
+
+[tool.setuptools]
+py-modules = ["stratum_finder", "stratum_analyzer", "stratum_log_filter"]
