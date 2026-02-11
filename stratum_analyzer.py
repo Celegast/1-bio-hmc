@@ -578,14 +578,15 @@ def generate_age_histogram(data: List[Dict[str, Any]],
         print("Warning: No age data available for age histogram")
         return
 
-    x = np.arange(len(all_bins))
-    bar_width = 0.38
+    # Tighter x-spacing: multiply positions by 0.72 so groups sit closer together
+    x = np.arange(len(all_bins)) * 0.72
+    bar_width = 0.28
 
     stratum_counts   = [stratum_bins.get(b, 0)  for b in all_bins]
     bacterium_counts = [bacterium_bins.get(b, 0) for b in all_bins]
     other_counts     = [other_bins.get(b, 0)     for b in all_bins]
 
-    fig, ax = plt.subplots(figsize=(18, 5))
+    fig, ax = plt.subplots(figsize=(14, 5))
 
     bars_s = ax.bar(x - bar_width / 2, stratum_counts, bar_width,
                     label='Stratum Tectonicas', color='dodgerblue', alpha=0.85,
