@@ -13,6 +13,8 @@ from typing import Dict, List, Any, Optional, Set
 from collections import defaultdict
 
 
+EARTH_GRAVITY = 9.80665  # m/s²
+
 # Criteria for Stratum Tectonicas
 STRATUM_CRITERIA = {
     'atmosphere': ['thin'],  # atmosphere must contain 'thin'
@@ -547,7 +549,7 @@ def generate_summary_report(candidates: List[Dict[str, Any]], output_file: Optio
         add_line(f"  Atmosphere: {body.get('Atmosphere', 'N/A')}")
         add_line(f"  Temperature: {body.get('SurfaceTemperature', 'N/A')}K")
         add_line(f"  Mass: {body.get('MassEM', 'N/A')} Earth Masses")
-        add_line(f"  Gravity: {body.get('SurfaceGravity', 'N/A')} m/s²")
+        add_line(f"  Gravity: {body.get('SurfaceGravity', 'N/A')} g")
         add_line(f"  Pressure: {body.get('SurfacePressure', 'N/A')} Pa")
         add_line(f"  Landable: {body.get('Landable', 'N/A')}")
 
@@ -652,6 +654,8 @@ Examples:
             new_candidate = c['body_data'].copy()
             new_candidate.update(c)
             new_candidate['body_data'] = []
+            if new_candidate.get('SurfaceGravity') is not None:
+                new_candidate['SurfaceGravity'] = new_candidate['SurfaceGravity'] / EARTH_GRAVITY
             cleaned_candidates.append(new_candidate)
 
         save_results(cleaned_candidates, args.output, args.format)
