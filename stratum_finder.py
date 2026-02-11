@@ -189,6 +189,18 @@ def evaluate_stratum_candidate(body: Dict[str, Any], system_data: SystemData,
     return result
 
 
+def get_system_age(system_data: SystemData) -> Optional[float]:
+    """
+    Return the system age in millions of years from the primary star scan.
+    Falls back to the star with the lowest BodyID if BodyID 0 is absent.
+    """
+    if not system_data.stars:
+        return None
+    # Primary star is BodyID 0; fall back to lowest available
+    primary_id = 0 if 0 in system_data.stars else min(system_data.stars)
+    return system_data.stars[primary_id].get('Age_MY')
+
+
 def extract_timestamp_from_filename(filename: str) -> str:
     """
     Extract timestamp from Elite Dangerous journal filename.
@@ -325,6 +337,7 @@ def process_log_file(file_path: str, system_data: SystemData,
                                         'body_name': body.get('BodyName'),
                                         'system_name': system_data.system_name,
                                         'system_address': system_data.system_address,
+                                        'system_age_my': get_system_age(system_data),
                                         'body_data': body,
                                         'evaluation': evaluation,
                                         'HasStratum': has_stratum,
@@ -430,6 +443,7 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
                         'body_name': body.get('BodyName'),
                         'system_name': system_data.system_name,
                         'system_address': system_data.system_address,
+                        'system_age_my': get_system_age(system_data),
                         'body_data': body,
                         'evaluation': evaluation,
                         'HasStratum': has_stratum,
