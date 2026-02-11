@@ -345,10 +345,16 @@ def process_log_file(file_path: str, system_data: SystemData,
 
 
 def process_log_directory(directory: str, file_pattern: str = "*.log",
-                         verbose: bool = False) -> List[Dict[str, Any]]:
+                         verbose: bool = False,
+                         since: Optional[str] = None,
+                         until: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Process all log files in a directory in chronological order.
     Preserves system context across files.
+
+    Args:
+        since: Only process files with timestamp >= this value (format: YYYY-MM-DDTHHMMSS)
+        until: Only process files with timestamp <= this value (format: YYYY-MM-DDTHHMMSS)
 
     Returns:
         List of all candidate bodies found
@@ -369,6 +375,21 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
 
     # Sort files by timestamp in filename for chronological processing
     log_files.sort(key=lambda f: extract_timestamp_from_filename(f.name))
+
+    # Apply timestamp range filter
+    if since or until:
+        filtered = []
+        for f in log_files:
+            ts = extract_timestamp_from_filename(f.name)
+            if since and ts < since:
+                continue
+            if until and ts > until:
+                continue
+            filtered.append(f)
+        if verbose:
+            print(f"Timestamp filter: {since or '*'} -> {until or '*'} "
+                  f"({len(filtered)}/{len(log_files)} files)")
+        log_files = filtered
 
     if verbose:
         print(f"Processing {len(log_files)} files in chronological order...")
@@ -572,6 +593,8 @@ Examples:
   %(prog)s -d /path/to/logs -o candidates.json
   %(prog)s -f Journal.log -o results.json --report summary.txt
   %(prog)s -d logs/ --pattern "Journal*.log" -o stratum_candidates.json
+  %(prog)s -d logs/ --since 2025-10-01T000000 -o candidates.json
+  %(prog)s -d logs/ --since 2025-10-01T000000 --until 2025-10-07T235959 -o candidates.json
         """
     )
 
@@ -591,6 +614,10 @@ Examples:
     # Processing options
     parser.add_argument('--pattern', default='*.log',
                        help='File pattern for directory processing (default: *.log)')
+    parser.add_argument('--since', metavar='YYYY-MM-DDTHHMMSS',
+                       help='Only process journal files with timestamp >= this value')
+    parser.add_argument('--until', metavar='YYYY-MM-DDTHHMMSS',
+                       help='Only process journal files with timestamp <= this value')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Enable verbose output during processing')
 
@@ -608,7 +635,8 @@ Examples:
         process_log_file(args.file, system_data, all_candidates)
         candidates = all_candidates
     else:
-        candidates = process_log_directory(args.directory, args.pattern, args.verbose)
+        candidates = process_log_directory(args.directory, args.pattern, args.verbose,
+                                           since=args.since, until=args.until)
 
     # Save results
     if candidates:
