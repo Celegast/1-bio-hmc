@@ -542,7 +542,7 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
 
 def generate_age_histogram(data: List[Dict[str, Any]],
                            output_dir: str = "stratum_plots",
-                           bin_width_my: int = 1000) -> None:
+                           bin_width_my: int = 500) -> None:
     """
     Generate a grouped bar chart of Stratum vs Bacterium counts by system age.
 
@@ -579,41 +579,45 @@ def generate_age_histogram(data: List[Dict[str, Any]],
         return
 
     x = np.arange(len(all_bins))
-    bar_width = 0.35
+    bar_width = 0.38
 
-    stratum_counts  = [stratum_bins.get(b, 0)  for b in all_bins]
+    stratum_counts   = [stratum_bins.get(b, 0)  for b in all_bins]
     bacterium_counts = [bacterium_bins.get(b, 0) for b in all_bins]
-    other_counts    = [other_bins.get(b, 0)    for b in all_bins]
+    other_counts     = [other_bins.get(b, 0)     for b in all_bins]
 
-    fig, ax = plt.subplots(figsize=(14, 6))
+    fig, ax = plt.subplots(figsize=(18, 5))
 
     bars_s = ax.bar(x - bar_width / 2, stratum_counts, bar_width,
                     label='Stratum Tectonicas', color='dodgerblue', alpha=0.85,
-                    edgecolor='darkblue', linewidth=0.5)
+                    edgecolor='darkblue', linewidth=0.4)
     bars_b = ax.bar(x + bar_width / 2, bacterium_counts, bar_width,
                     label='Bacterium', color='lightcoral', alpha=0.85,
-                    edgecolor='darkred', linewidth=0.5)
+                    edgecolor='darkred', linewidth=0.4)
     # Stack 'Other' on top of Bacterium bars
     if any(other_counts):
         ax.bar(x + bar_width / 2, other_counts, bar_width,
                bottom=bacterium_counts,
                label='Other genus', color='wheat', alpha=0.85,
-               edgecolor='goldenrod', linewidth=0.5)
+               edgecolor='goldenrod', linewidth=0.4)
 
-    ax.set_xlabel('System Age (MY)', fontsize=12)
-    ax.set_ylabel('Number of Candidates', fontsize=12)
-    ax.set_title('Stratum vs Bacterium Candidates by System Age', fontsize=14, fontweight='bold')
+    ax.set_xlabel('System Age (MY)', fontsize=10)
+    ax.set_ylabel('Candidates', fontsize=10)
+    ax.set_title('Stratum vs Bacterium Candidates by System Age (500 MY bins)',
+                 fontsize=12, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels([f'{b//1000}k' if b >= 1000 else str(b) for b in all_bins],
-                       rotation=45, ha='right')
-    ax.legend()
+    ax.set_xticklabels(
+        [f'{b/1000:.1f}k' if b >= 1000 else str(b) for b in all_bins],
+        rotation=60, ha='right', fontsize=7
+    )
+    ax.tick_params(axis='y', labelsize=8)
+    ax.legend(fontsize=9)
     ax.grid(True, axis='y', alpha=0.3, linestyle='--')
 
-    # Annotate total count above each Stratum bar (skip zeros)
+    # Annotate count above each Stratum bar (skip zeros)
     for bar, count in zip(bars_s, stratum_counts):
         if count:
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
-                    str(count), ha='center', va='bottom', fontsize=8)
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
+                    str(count), ha='center', va='bottom', fontsize=6)
 
     plt.tight_layout()
     filepath = Path(output_dir) / "age_histogram.png"
