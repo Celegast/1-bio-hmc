@@ -317,7 +317,7 @@ def generate_2d_plots(plot_data: Dict[str, Dict[str, List[float]]],
     feature_labels = {
         'mass': 'Mass (Earth Masses)',
         'radius': 'Radius (m)',
-        'gravity': 'Surface Gravity (m/s²)',
+        'gravity': 'Surface Gravity (g)',
         'temperature': 'Surface Temperature (K)',
         'pressure': 'Surface Pressure (Pa)'
     }
@@ -474,7 +474,7 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
     feature_labels = {
         'mass': 'Mass (Earth Masses)',
         'radius': 'Radius (m)',
-        'gravity': 'Surface Gravity (m/s²)',
+        'gravity': 'Surface Gravity (g)',
         'temperature': 'Surface Temperature (K)',
         'pressure': 'Surface Pressure (Pa)'
     }
@@ -813,7 +813,7 @@ Plot Features:
   The --plots option generates 2D scatter plots for all combinations of:
   - Mass (Earth Masses) vs Radius, Gravity, Temperature, Pressure
   - Radius (m) vs Gravity, Temperature, Pressure
-  - Gravity (m/s²) vs Temperature, Pressure
+  - Gravity (g) vs Temperature, Pressure
   - Temperature (K) vs Pressure
   Plus correlation matrices and distribution comparisons.
         """
