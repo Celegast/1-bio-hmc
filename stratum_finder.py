@@ -672,7 +672,20 @@ Examples:
                 new_candidate['SurfaceGravity'] = new_candidate['SurfaceGravity'] / EARTH_GRAVITY
             cleaned_candidates.append(new_candidate)
 
-        save_results(cleaned_candidates, args.output, args.format)
+        KNOWN_GENERA = {'stratum', 'bacterium'}
+        main_candidates = [c for c in cleaned_candidates
+                           if c.get('genus', 'Unknown').lower() in KNOWN_GENERA]
+        oddity_candidates = [c for c in cleaned_candidates
+                             if c.get('genus', 'Unknown').lower() not in KNOWN_GENERA]
+
+        save_results(main_candidates, args.output, args.format)
+
+        if oddity_candidates:
+            output_path = Path(args.output)
+            oddities_path = output_path.with_stem(output_path.stem + '_oddities')
+            save_results(oddity_candidates, str(oddities_path), args.format)
+            print(f"Oddities ({len(oddity_candidates)} bodies with unexpected genus) "
+                  f"saved to '{oddities_path}'")
 
         # Generate detailed report if requested
         if args.report:
