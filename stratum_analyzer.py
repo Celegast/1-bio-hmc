@@ -380,6 +380,68 @@ def generate_atmosphere_composition_plot(atm_analysis: Dict[str, Any],
     print(f"Atmosphere composition plot saved: atmosphere_composition.png")
 
 
+def generate_binding_energy_plot(data: List[Dict[str, Any]],
+                                 output_dir: str = "stratum_plots") -> None:
+    """
+    Scatter plot of GM^2/R (gravitational binding energy proxy) vs Surface Temperature,
+    colour-coded by Stratum / Bacterium.
+    """
+    GRAV_CONST = 6.67430e-11       # m^3 kg^-1 s^-2
+    EARTH_MASS = 5.972168e24       # kg
+
+    Path(output_dir).mkdir(exist_ok=True)
+
+    stratum_x, stratum_y = [], []
+    other_x, other_y = [], []
+
+    for entry in data:
+        mass_em = entry.get('MassEM')
+        radius  = entry.get('Radius')
+        temp    = entry.get('SurfaceTemperature')
+        if mass_em is None or radius is None or temp is None:
+            continue
+        if radius == 0:
+            continue
+
+        mass_kg = mass_em * EARTH_MASS
+        gm2_r = GRAV_CONST * mass_kg ** 2 / radius
+
+        if entry.get('HasStratum'):
+            stratum_x.append(gm2_r)
+            stratum_y.append(temp)
+        else:
+            other_x.append(gm2_r)
+            other_y.append(temp)
+
+    if not stratum_x and not other_x:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    if other_x:
+        ax.scatter(other_x, other_y, alpha=0.5, s=18, color='lightcoral',
+                   edgecolors='darkred', linewidths=0.3,
+                   label=f'Without Stratum (n={len(other_x)})')
+    if stratum_x:
+        ax.scatter(stratum_x, stratum_y, alpha=0.7, s=22, color='dodgerblue',
+                   edgecolors='darkblue', linewidths=0.3,
+                   label=f'With Stratum (n={len(stratum_x)})')
+
+    ax.set_xlabel(r'$G \cdot M^2 \,/\, R$  (J)', fontsize=11)
+    ax.set_ylabel('Surface Temperature (K)', fontsize=11)
+    ax.set_title(r'Gravitational Binding Energy Proxy ($G M^2 / R$) vs Temperature',
+                 fontweight='bold')
+    ax.ticklabel_format(axis='x', style='scientific', scilimits=(0, 0))
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    filepath = Path(output_dir) / "binding_energy_vs_temp.png"
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Binding-energy plot saved: binding_energy_vs_temp.png")
+
+
 def analyze_composition(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze Ice/Rock/Metal composition for correlation with Stratum."""
     composition_types = ['Ice', 'Rock', 'Metal']
@@ -1108,6 +1170,9 @@ Plot Features:
         # Atmosphere composition plot
         if 'atmosphere_composition' in analyses:
             generate_atmosphere_composition_plot(analyses['atmosphere_composition'], args.plot_dir)
+
+        # Binding energy proxy vs temperature
+        generate_binding_energy_plot(scan_data, args.plot_dir)
 
     print("\nAnalysis complete!")
 
