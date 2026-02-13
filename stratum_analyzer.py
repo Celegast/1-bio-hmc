@@ -257,6 +257,129 @@ def analyze_materials(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {'materials': results}
 
 
+def analyze_atmosphere_composition(data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Analyze AtmosphereComposition component percentages for correlation with Stratum.
+
+    For each component (SO2, CO2, Oxygen, etc.) calculates:
+    - Mean percentage in Stratum vs non-Stratum bodies (when the component is present)
+    - Presence rate (fraction of bodies that have the component at all)
+    """
+    comp_data: Dict[str, Dict] = defaultdict(
+        lambda: {'with_stratum': [], 'without_stratum': [],
+                 'presence_stratum': 0, 'presence_other': 0}
+    )
+    total_stratum = sum(1 for d in data if d.get('HasStratum'))
+    total_other   = len(data) - total_stratum
+
+    for entry in data:
+        has_stratum = entry.get('HasStratum', False)
+        for item in (entry.get('AtmosphereComposition') or []):
+            name = item.get('Name') or item.get('name') or item.get('Component', '?')
+            pct  = item.get('Percent') or item.get('percent') or 0
+            if not isinstance(pct, (int, float)):
+                continue
+            bucket = comp_data[name]
+            if has_stratum:
+                bucket['with_stratum'].append(pct)
+                bucket['presence_stratum'] += 1
+            else:
+                bucket['without_stratum'].append(pct)
+                bucket['presence_other'] += 1
+
+    results = []
+    for comp, d in comp_data.items():
+        ws = d['with_stratum']
+        wo = d['without_stratum']
+        presence_s = d['presence_stratum'] / total_stratum  * 100 if total_stratum else 0
+        presence_o = d['presence_other']   / total_other    * 100 if total_other   else 0
+        results.append({
+            'component':           comp,
+            'with_stratum_mean':   statistics.mean(ws) if ws else 0.0,
+            'without_stratum_mean':statistics.mean(wo) if wo else 0.0,
+            'mean_difference':     (statistics.mean(ws) if ws else 0.0) -
+                                   (statistics.mean(wo) if wo else 0.0),
+            'with_stratum_count':  len(ws),
+            'without_stratum_count': len(wo),
+            'presence_stratum_pct':  presence_s,
+            'presence_other_pct':    presence_o,
+            'presence_difference':   presence_s - presence_o,
+        })
+
+    results.sort(key=lambda x: abs(x['presence_difference']), reverse=True)
+    return {
+        'components': results,
+        'total_stratum': total_stratum,
+        'total_other':   total_other,
+    }
+
+
+def generate_atmosphere_composition_plot(atm_analysis: Dict[str, Any],
+                                         output_dir: str = "stratum_plots") -> None:
+    """
+    Generate a two-panel bar chart for atmosphere composition indicators:
+      Top panel:    presence rate (% of bodies containing each component)
+      Bottom panel: mean % when the component is present
+    """
+    Path(output_dir).mkdir(exist_ok=True)
+
+    components = [r['component'] for r in atm_analysis['components']]
+    if not components:
+        return
+
+    presence_s = [r['presence_stratum_pct']   for r in atm_analysis['components']]
+    presence_o = [r['presence_other_pct']      for r in atm_analysis['components']]
+    mean_s     = [r['with_stratum_mean']        for r in atm_analysis['components']]
+    mean_o     = [r['without_stratum_mean']     for r in atm_analysis['components']]
+
+    x = np.arange(len(components))
+    bar_width = 0.38
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 7))
+
+    # --- Panel 1: presence rate ---
+    b1s = ax1.bar(x - bar_width / 2, presence_s, bar_width,
+                  color='dodgerblue', alpha=0.85, edgecolor='darkblue', linewidth=0.5,
+                  label='With Stratum')
+    b1o = ax1.bar(x + bar_width / 2, presence_o, bar_width,
+                  color='lightcoral', alpha=0.85, edgecolor='darkred', linewidth=0.5,
+                  label='Without Stratum')
+    for bar, val in list(zip(b1s, presence_s)) + list(zip(b1o, presence_o)):
+        if val:
+            ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                     f'{val:.1f}%', ha='center', va='bottom', fontsize=7)
+    ax1.set_ylabel('Bodies with component (%)')
+    ax1.set_title('Atmosphere Composition Indicators: Presence Rate', fontweight='bold')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(components, fontsize=9)
+    ax1.legend(fontsize=9)
+    ax1.grid(True, axis='y', alpha=0.3)
+
+    # --- Panel 2: mean % when present ---
+    b2s = ax2.bar(x - bar_width / 2, mean_s, bar_width,
+                  color='dodgerblue', alpha=0.85, edgecolor='darkblue', linewidth=0.5,
+                  label='With Stratum')
+    b2o = ax2.bar(x + bar_width / 2, mean_o, bar_width,
+                  color='lightcoral', alpha=0.85, edgecolor='darkred', linewidth=0.5,
+                  label='Without Stratum')
+    for bar, val in list(zip(b2s, mean_s)) + list(zip(b2o, mean_o)):
+        if val:
+            ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                     f'{val:.1f}%', ha='center', va='bottom', fontsize=7)
+    ax2.set_ylabel('Mean component % (when present)')
+    ax2.set_title('Atmosphere Composition Indicators: Mean Percentage', fontweight='bold')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(components, fontsize=9)
+    ax2.legend(fontsize=9)
+    ax2.grid(True, axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    filepath = Path(output_dir) / "atmosphere_composition.png"
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Atmosphere composition plot saved: atmosphere_composition.png")
+
+
 def analyze_composition(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze Ice/Rock/Metal composition for correlation with Stratum."""
     composition_types = ['Ice', 'Rock', 'Metal']
@@ -777,6 +900,22 @@ def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None)
                             f"({ws_mean:.4f} vs {wos_mean:.4f})")
         add_line()
 
+    # Atmosphere composition analysis
+    if 'atmosphere_composition' in analyses:
+        atm = analyses['atmosphere_composition']
+        add_line("ATMOSPHERE COMPOSITION ANALYSIS")
+        add_line("-" * 40)
+        add_line(f"{'Component':<22} {'Str pres%':>10} {'Bac pres%':>10} "
+                 f"{'Str mean%':>10} {'Bac mean%':>10} {'Pres diff':>10}")
+        for r in atm['components']:
+            add_line(f"  {r['component']:<20} "
+                     f"{r['presence_stratum_pct']:>9.1f}% "
+                     f"{r['presence_other_pct']:>9.1f}% "
+                     f"{r['with_stratum_mean']:>9.1f}% "
+                     f"{r['without_stratum_mean']:>9.1f}% "
+                     f"{r['presence_difference']:>+9.1f}%")
+        add_line()
+
     # Key findings
     add_line("KEY FINDINGS AND RECOMMENDATIONS")
     add_line("-" * 40)
@@ -911,6 +1050,7 @@ Plot Features:
     # Special analyses
     analyses['materials'] = analyze_materials(scan_data)
     analyses['composition'] = analyze_composition(scan_data)
+    analyses['atmosphere_composition'] = analyze_atmosphere_composition(scan_data)
 
     # Generate and display report
     print("\n" + "="*80)
@@ -964,6 +1104,10 @@ Plot Features:
         # Age histogram uses raw scan_data directly (not plot_data)
         if not args.no_age_histogram:
             generate_age_histogram(scan_data, args.plot_dir)
+
+        # Atmosphere composition plot
+        if 'atmosphere_composition' in analyses:
+            generate_atmosphere_composition_plot(analyses['atmosphere_composition'], args.plot_dir)
 
     print("\nAnalysis complete!")
 
