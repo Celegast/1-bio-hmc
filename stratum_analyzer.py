@@ -1062,6 +1062,10 @@ Plot Features:
                        help='Skip distribution comparison plots')
     parser.add_argument('--no-age-histogram', action='store_true',
                        help='Skip Stratum/Bacterium by system age bar chart')
+    parser.add_argument('--max-temp', type=float, metavar='K',
+                       help='Only include bodies with SurfaceTemperature <= this value (K)')
+    parser.add_argument('--min-temp', type=float, metavar='K',
+                       help='Only include bodies with SurfaceTemperature >= this value (K)')
 
     args = parser.parse_args()
 
@@ -1074,6 +1078,28 @@ Plot Features:
         sys.exit(1)
 
     print(f"Loaded {len(scan_data)} scan entries")
+
+    # Apply temperature filters
+    if args.max_temp is not None or args.min_temp is not None:
+        before = len(scan_data)
+        if args.max_temp is not None:
+            scan_data = [d for d in scan_data
+                         if d.get('SurfaceTemperature') is not None
+                         and d['SurfaceTemperature'] <= args.max_temp]
+        if args.min_temp is not None:
+            scan_data = [d for d in scan_data
+                         if d.get('SurfaceTemperature') is not None
+                         and d['SurfaceTemperature'] >= args.min_temp]
+        temp_range = []
+        if args.min_temp is not None:
+            temp_range.append(f">= {args.min_temp}K")
+        if args.max_temp is not None:
+            temp_range.append(f"<= {args.max_temp}K")
+        print(f"Temperature filter ({', '.join(temp_range)}): {before} -> {len(scan_data)} bodies")
+
+        if not scan_data:
+            print("No bodies remain after filtering. Exiting.")
+            sys.exit(1)
 
     # Basic overview
     stratum_count = sum(1 for entry in scan_data if entry.get('HasStratum', False))
