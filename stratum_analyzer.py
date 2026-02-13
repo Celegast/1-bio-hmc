@@ -490,16 +490,36 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-        # Histogram comparison
-        if data_without:
-            ax1.hist(data_without, bins=30, alpha=0.7, color='lightcoral',
-                    label=f'Without Stratum (n={len(data_without)})', density=True)
-        if data_with:
-            ax1.hist(data_with, bins=30, alpha=0.7, color='dodgerblue',
-                    label=f'With Stratum (n={len(data_with)})', density=True)
+        # Shared bin edges so both series are comparable
+        all_vals = list(data_without or []) + list(data_with or [])
+        bin_range = (min(all_vals), max(all_vals)) if all_vals else None
+        n_bins = 30
+        _, bin_edges = np.histogram(all_vals, bins=n_bins, range=bin_range)
+
+        n_out = np.histogram(data_without, bins=bin_edges)[0] if data_without else np.zeros(n_bins)
+        n_in  = np.histogram(data_with,    bins=bin_edges)[0] if data_with    else np.zeros(n_bins)
+
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bar_width = (bin_edges[1] - bin_edges[0]) * 0.45
+
+        bars_out = ax1.bar(bin_centers - bar_width / 2, n_out, bar_width,
+                           color='lightcoral', alpha=0.85, edgecolor='darkred', linewidth=0.4,
+                           label=f'Without Stratum (n={len(data_without or [])})')
+        bars_in  = ax1.bar(bin_centers + bar_width / 2, n_in,  bar_width,
+                           color='dodgerblue', alpha=0.85, edgecolor='darkblue', linewidth=0.4,
+                           label=f'With Stratum (n={len(data_with or [])})')
+
+        for bar, count in zip(bars_out, n_out):
+            if count:
+                ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                         str(int(count)), ha='center', va='bottom', fontsize=5, color='darkred')
+        for bar, count in zip(bars_in, n_in):
+            if count:
+                ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                         str(int(count)), ha='center', va='bottom', fontsize=5, color='darkblue')
 
         ax1.set_xlabel(feature_labels[feature])
-        ax1.set_ylabel('Density')
+        ax1.set_ylabel('Count')
         ax1.set_title(f'Distribution Comparison: {feature_labels[feature]}')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
@@ -515,7 +535,7 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
             box_labels.append('With Stratum')
 
         if box_data:
-            bp = ax2.boxplot(box_data, labels=box_labels, patch_artist=True)
+            bp = ax2.boxplot(box_data, tick_labels=box_labels, patch_artist=True)
             colors = ['lightcoral', 'dodgerblue']
             for patch, color in zip(bp['boxes'], colors[:len(box_data)]):
                 patch.set_facecolor(color)
@@ -525,9 +545,8 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
         ax2.set_title('Box Plot Comparison')
         ax2.grid(True, alpha=0.3)
 
-        # Use log scale for certain features
+        # Use log scale on box plot y-axis for wide-range features
         if feature in ['radius', 'pressure']:
-            ax1.set_yscale('log')
             ax2.set_yscale('log')
 
         plt.tight_layout()
