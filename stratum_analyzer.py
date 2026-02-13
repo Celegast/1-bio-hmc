@@ -597,9 +597,9 @@ def generate_age_histogram(data: List[Dict[str, Any]],
         print("Warning: No age data available for age histogram")
         return
 
-    # Tighter x-spacing: multiply positions by 0.72 so groups sit closer together
-    x = np.arange(len(all_bins)) * 0.72
-    bar_width = 0.28
+    group_spacing = 0.72
+    bar_width = group_spacing * 0.45  # two bars fill 90% of spacing → small inter-group gap
+    x = np.arange(len(all_bins)) * group_spacing
 
     stratum_counts   = [stratum_bins.get(b, 0)  for b in all_bins]
     bacterium_counts = [bacterium_bins.get(b, 0) for b in all_bins]
@@ -633,11 +633,16 @@ def generate_age_histogram(data: List[Dict[str, Any]],
     ax.legend(fontsize=9)
     ax.grid(True, axis='y', alpha=0.3, linestyle='--')
 
-    # Annotate count above each Stratum bar (skip zeros)
+    # Annotate count above each bar (skip zeros)
     for bar, count in zip(bars_s, stratum_counts):
         if count:
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
-                    str(count), ha='center', va='bottom', fontsize=6)
+                    str(count), ha='center', va='bottom', fontsize=6, color='darkblue')
+    for bar, count, other in zip(bars_b, bacterium_counts, other_counts):
+        total = count + other
+        if total:
+            ax.text(bar.get_x() + bar.get_width() / 2, total + 0.2,
+                    str(total), ha='center', va='bottom', fontsize=6, color='darkred')
 
     plt.tight_layout()
     filepath = Path(output_dir) / "age_histogram.png"
