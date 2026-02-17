@@ -78,7 +78,11 @@ stratum-finder -o candidates.json --report summary.txt
 The main output JSON contains one entry per candidate body with fields
 including: system name, body name, surface temperature, gravity (in g),
 pressure, mass, radius, atmosphere type and composition, materials, system age,
-orbital parameters, and whether Stratum was confirmed (`HasStratum`).
+orbital parameters, all system star data, and whether Stratum was confirmed
+(`HasStratum`).
+
+Bodies with geological signals are included only when their genus is confirmed
+as Stratum or Bacterium (geo + bio signals usually indicate Horizons-era bios).
 
 ## Stratum Analyzer
 
@@ -92,15 +96,19 @@ planetary properties correlate with Stratum Tectonicas presence.
 - **Atmosphere composition**: per-component presence rates and mean percentages
 - **Body composition**: ice/rock/metal ratios
 - **Materials**: surface material percentages
+- **Star population**: primary vs companion star distribution, multi-star system effects
+- **Habitable zone**: per-star-type analysis of Stratum rates inside vs outside the HZ
 
 ### Plots generated (with `--plots`)
 
 - 2D scatter plots for all feature pair combinations
 - Correlation matrices (Stratum vs non-Stratum)
-- Distribution comparison histograms with box plots
-- System age histogram (Stratum vs Bacterium by age bucket)
+- Distribution comparison histograms with box plots (+ Stratum ratio trend)
+- System age histogram (Stratum vs Bacterium by age bucket, + ratio trend)
 - Atmosphere composition indicator chart
 - Gravitational binding energy proxy (GM^2/R) vs temperature
+- Star population: primary vs companion stellar mass, star type distribution
+- Habitable zone: Stratum rate inside vs outside HZ, per host star type
 
 ### Usage
 
@@ -177,8 +185,16 @@ Stratum Tectonicas:
 | 5 | Surface gravity < 0.40 g | Weak signal |
 
 Properties with **no significant signal**: pressure, system age, star type,
-orbital parameters, body composition, surface materials.
+orbital parameters, body composition, surface materials, habitable zone,
+multi-star systems.
 
 Below 200 K, Stratum vs Bacterium appears essentially random -- temperature is
 the primary discriminator, and once controlled for, no other property reliably
 predicts genus.
+
+### Star population notes
+
+- 99% of stars below 0.2 solar masses are companion stars, not primaries
+- Multi-star systems show no difference in Stratum rate vs single-star systems
+- Habitable zone position shows no correlation with Stratum across F, K, and M
+  host star types
