@@ -442,6 +442,199 @@ def generate_binding_energy_plot(data: List[Dict[str, Any]],
     print(f"Binding-energy plot saved: binding_energy_vs_temp.png")
 
 
+def analyze_star_population(data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Analyze star population across all candidate systems.
+
+    Deduplicates systems (multiple candidates may share a system), then
+    examines: star types, stellar mass distribution, primary vs companion
+    breakdown, single vs multi-star Stratum rates, and age distribution
+    by system multiplicity.
+    """
+    # Deduplicate systems
+    systems: Dict[str, Dict] = {}
+    for d in data:
+        sname = d.get('system_name', '')
+        if sname not in systems:
+            systems[sname] = {'stars': d.get('system_stars', []), 'candidates': []}
+        systems[sname]['candidates'].append(d)
+
+    all_stars = [s for sys in systems.values() for s in sys['stars']]
+    if not all_stars:
+        return {'has_data': False}
+
+    # Star type counts
+    type_counts = Counter(s.get('StarType', '?') for s in all_stars)
+
+    # Stellar mass by type
+    type_mass_stats = {}
+    for st in type_counts:
+        masses = [s['StellarMass'] for s in all_stars
+                  if s.get('StarType') == st and 'StellarMass' in s]
+        if masses:
+            type_mass_stats[st] = {
+                'mean': statistics.mean(masses),
+                'median': statistics.median(masses),
+                'count': len(masses),
+            }
+
+    # Primary vs companion by mass bracket (0.2 Sol bins)
+    mass_role: Dict[float, List[int]] = defaultdict(lambda: [0, 0])
+    for sys in systems.values():
+        stars = sys['stars']
+        if not stars:
+            continue
+        primary_id = min(s.get('BodyID', 999) for s in stars)
+        for s in stars:
+            m = s.get('StellarMass')
+            if m is None:
+                continue
+            bucket = round(int(m / 0.2) * 0.2, 1)
+            if s.get('BodyID') == primary_id:
+                mass_role[bucket][0] += 1
+            else:
+                mass_role[bucket][1] += 1
+
+    # Single vs multi-star
+    single = {k: v for k, v in systems.items() if len(v['stars']) == 1}
+    multi  = {k: v for k, v in systems.items() if len(v['stars']) >= 2}
+
+    def _stratum_rate(sys_dict):
+        total = sum(len(v['candidates']) for v in sys_dict.values())
+        strat = sum(sum(1 for c in v['candidates'] if c.get('HasStratum'))
+                    for v in sys_dict.values())
+        return strat, total
+
+    single_s, single_t = _stratum_rate(single)
+    multi_s, multi_t = _stratum_rate(multi)
+
+    # Star count distribution
+    star_count_dist = Counter(len(v['stars']) for v in systems.values())
+
+    # Companion star type breakdown
+    companion_types = Counter()
+    for sys in multi.values():
+        for s in sys['stars'][1:]:
+            companion_types[s.get('StarType', '?')] += 1
+
+    return {
+        'has_data': True,
+        'n_systems': len(systems),
+        'n_stars': len(all_stars),
+        'type_counts': type_counts,
+        'type_mass_stats': type_mass_stats,
+        'mass_role': dict(mass_role),
+        'single_count': len(single),
+        'multi_count': len(multi),
+        'single_stratum': single_s, 'single_total': single_t,
+        'multi_stratum': multi_s, 'multi_total': multi_t,
+        'star_count_dist': star_count_dist,
+        'companion_types': companion_types,
+        'all_stars': all_stars,  # kept for plotting
+    }
+
+
+def generate_star_population_plots(star_analysis: Dict[str, Any],
+                                    output_dir: str = "stratum_plots") -> None:
+    """
+    Generate star population plots:
+      1. Stellar mass histogram coloured by primary vs companion
+      2. Star type distribution bar chart
+    """
+    if not star_analysis.get('has_data'):
+        return
+
+    Path(output_dir).mkdir(exist_ok=True)
+
+    mass_role = star_analysis['mass_role']
+    all_stars = star_analysis['all_stars']
+
+    # --- Plot 1: Stellar mass histogram, primary vs companion ---
+    buckets = sorted(mass_role.keys())
+    # Trim extreme outliers (keep up to 2.0 Sol for readability)
+    buckets = [b for b in buckets if b <= 2.0]
+    if not buckets:
+        return
+
+    primaries   = [mass_role[b][0] for b in buckets]
+    companions  = [mass_role[b][1] for b in buckets]
+
+    x = np.arange(len(buckets))
+    bar_width = 0.4
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    bars_p = ax.bar(x - bar_width / 2, primaries, bar_width,
+                    color='steelblue', alpha=0.85, edgecolor='navy', linewidth=0.5,
+                    label='Primary star')
+    bars_c = ax.bar(x + bar_width / 2, companions, bar_width,
+                    color='salmon', alpha=0.85, edgecolor='darkred', linewidth=0.5,
+                    label='Companion star')
+
+    for bar, count in zip(bars_p, primaries):
+        if count:
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    str(count), ha='center', va='bottom', fontsize=6, color='navy')
+    for bar, count in zip(bars_c, companions):
+        if count:
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    str(count), ha='center', va='bottom', fontsize=6, color='darkred')
+
+    ax.set_xlabel('Stellar Mass (Solar masses)', fontsize=10)
+    ax.set_ylabel('Count', fontsize=10)
+    ax.set_title('Stellar Mass Distribution: Primary vs Companion Stars',
+                 fontsize=12, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'{b:.1f}' for b in buckets], fontsize=8)
+    ax.legend(fontsize=9)
+    ax.grid(True, axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    filepath = Path(output_dir) / "star_mass_primary_vs_companion.png"
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Star mass plot saved: star_mass_primary_vs_companion.png")
+
+    # --- Plot 2: Star type distribution ---
+    type_counts = star_analysis['type_counts']
+    companion_types = star_analysis['companion_types']
+
+    # Order by total count descending, keep top types
+    top_types = [t for t, _ in type_counts.most_common() if type_counts[t] >= 3]
+
+    total_counts = [type_counts[t] for t in top_types]
+    comp_counts  = [companion_types.get(t, 0) for t in top_types]
+    prim_counts  = [total_counts[i] - comp_counts[i] for i in range(len(top_types))]
+
+    x2 = np.arange(len(top_types))
+    fig2, ax2 = plt.subplots(figsize=(10, 5))
+
+    ax2.bar(x2, prim_counts, bar_width * 2,
+            color='steelblue', alpha=0.85, edgecolor='navy', linewidth=0.5,
+            label='Primary')
+    ax2.bar(x2, comp_counts, bar_width * 2, bottom=prim_counts,
+            color='salmon', alpha=0.85, edgecolor='darkred', linewidth=0.5,
+            label='Companion')
+
+    for i, t in enumerate(top_types):
+        ax2.text(i, total_counts[i], str(total_counts[i]),
+                 ha='center', va='bottom', fontsize=7)
+
+    ax2.set_xlabel('Star Type', fontsize=10)
+    ax2.set_ylabel('Count', fontsize=10)
+    ax2.set_title('Star Type Distribution (Primary vs Companion, stacked)',
+                  fontsize=12, fontweight='bold')
+    ax2.set_xticks(x2)
+    ax2.set_xticklabels(top_types, fontsize=9)
+    ax2.legend(fontsize=9)
+    ax2.grid(True, axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    filepath2 = Path(output_dir) / "star_type_distribution.png"
+    plt.savefig(filepath2, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Star type plot saved: star_type_distribution.png")
+
+
 def analyze_composition(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze Ice/Rock/Metal composition for correlation with Stratum."""
     composition_types = ['Ice', 'Rock', 'Metal']
@@ -978,6 +1171,48 @@ def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None)
                      f"{r['presence_difference']:>+9.1f}%")
         add_line()
 
+    # Star population analysis
+    if 'star_population' in analyses and analyses['star_population'].get('has_data'):
+        sp = analyses['star_population']
+        add_line("STAR POPULATION ANALYSIS")
+        add_line("-" * 40)
+        add_line(f"Unique systems: {sp['n_systems']}, Total stars: {sp['n_stars']}")
+        add_line(f"Single-star systems: {sp['single_count']}, "
+                 f"Multi-star systems: {sp['multi_count']}")
+        add_line()
+
+        # Stratum rate by multiplicity
+        if sp['single_total']:
+            add_line(f"Stratum rate (single-star): "
+                     f"{sp['single_stratum']}/{sp['single_total']} "
+                     f"({100*sp['single_stratum']/sp['single_total']:.1f}%)")
+        if sp['multi_total']:
+            add_line(f"Stratum rate (multi-star):  "
+                     f"{sp['multi_stratum']}/{sp['multi_total']} "
+                     f"({100*sp['multi_stratum']/sp['multi_total']:.1f}%)")
+        add_line()
+
+        # Star type table
+        add_line(f"{'Type':<8} {'Count':>6} {'Pct':>6}  {'Mean Mass':>10}  {'Med Mass':>10}")
+        for st, count in sp['type_counts'].most_common():
+            stats = sp['type_mass_stats'].get(st, {})
+            mm = f"{stats['mean']:.3f}" if stats else '-'
+            med = f"{stats['median']:.3f}" if stats else '-'
+            add_line(f"  {st:<6} {count:>6} {100*count/sp['n_stars']:>5.1f}%  "
+                     f"{mm:>10}  {med:>10}")
+        add_line()
+
+        # Primary vs companion by mass
+        add_line(f"{'Mass (Sol)':<10} {'Primary':>8} {'Companion':>10} {'Comp%':>7}")
+        for b in sorted(sp['mass_role']):
+            if b > 2.0:
+                continue
+            p, c = sp['mass_role'][b]
+            total = p + c
+            cp = 100*c/total if total else 0
+            add_line(f"  {b:<8.1f} {p:>8} {c:>10} {cp:>6.1f}%")
+        add_line()
+
     # Key findings
     add_line("KEY FINDINGS AND RECOMMENDATIONS")
     add_line("-" * 40)
@@ -1139,6 +1374,7 @@ Plot Features:
     analyses['materials'] = analyze_materials(scan_data)
     analyses['composition'] = analyze_composition(scan_data)
     analyses['atmosphere_composition'] = analyze_atmosphere_composition(scan_data)
+    analyses['star_population'] = analyze_star_population(scan_data)
 
     # Generate and display report
     print("\n" + "="*80)
@@ -1199,6 +1435,10 @@ Plot Features:
 
         # Binding energy proxy vs temperature
         generate_binding_energy_plot(scan_data, args.plot_dir)
+
+        # Star population plots
+        if 'star_population' in analyses:
+            generate_star_population_plots(analyses['star_population'], args.plot_dir)
 
     print("\nAnalysis complete!")
 
