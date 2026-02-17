@@ -635,6 +635,174 @@ def generate_star_population_plots(star_analysis: Dict[str, Any],
     print(f"Star type plot saved: star_type_distribution.png")
 
 
+# ---------------------------------------------------------------------------
+# Habitable-zone analysis
+# ---------------------------------------------------------------------------
+
+SUN_ABS_MAG = 4.83
+AU_METERS = 1.496e11
+# Conservative HZ coefficients (Kasting et al.)
+HZ_INNER_COEFF = 1.1   # inner edge = sqrt(L / coeff) AU
+HZ_OUTER_COEFF = 0.53  # outer edge = sqrt(L / coeff) AU
+
+
+def _find_host_star(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Find the host star for a body by walking its Parents chain."""
+    parents = entry.get('Parents', [])
+    stars = {s['BodyID']: s for s in entry.get('system_stars', [])}
+    for parent in parents:
+        if 'Star' in parent:
+            star_id = parent['Star']
+            return stars.get(star_id)
+    return None
+
+
+def analyze_habitable_zone(data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Classify each body as inside/outside its host star's habitable zone.
+
+    Returns per-star-type counts of Stratum / non-Stratum × in-HZ / out-HZ,
+    plus per-body details for plotting.
+    """
+    import math
+
+    # per star type: {type: {'in_hz_stratum': n, 'in_hz_other': n,
+    #                        'out_hz_stratum': n, 'out_hz_other': n}}
+    by_type: Dict[str, Dict[str, int]] = {}
+    body_details: List[Dict[str, Any]] = []  # for scatter plots if needed
+
+    for entry in data:
+        star = _find_host_star(entry)
+        if star is None:
+            continue
+        abs_mag = star.get('AbsoluteMagnitude')
+        if abs_mag is None:
+            continue
+
+        sma = entry.get('SemiMajorAxis')
+        if not sma or sma <= 0:
+            continue
+
+        luminosity = 10 ** ((SUN_ABS_MAG - abs_mag) / 2.5)  # solar luminosities
+        hz_inner = math.sqrt(luminosity / HZ_INNER_COEFF)     # AU
+        hz_outer = math.sqrt(luminosity / HZ_OUTER_COEFF)     # AU
+        distance_au = sma / AU_METERS
+
+        in_hz = hz_inner <= distance_au <= hz_outer
+        has_stratum = entry.get('HasStratum', False)
+        star_type = star.get('StarType', 'Unknown')
+
+        if star_type not in by_type:
+            by_type[star_type] = {
+                'in_hz_stratum': 0, 'in_hz_other': 0,
+                'out_hz_stratum': 0, 'out_hz_other': 0,
+            }
+
+        if in_hz:
+            if has_stratum:
+                by_type[star_type]['in_hz_stratum'] += 1
+            else:
+                by_type[star_type]['in_hz_other'] += 1
+        else:
+            if has_stratum:
+                by_type[star_type]['out_hz_stratum'] += 1
+            else:
+                by_type[star_type]['out_hz_other'] += 1
+
+        body_details.append({
+            'star_type': star_type,
+            'distance_au': distance_au,
+            'hz_inner': hz_inner,
+            'hz_outer': hz_outer,
+            'luminosity': luminosity,
+            'in_hz': in_hz,
+            'has_stratum': has_stratum,
+        })
+
+    return {'by_type': by_type, 'body_details': body_details}
+
+
+def generate_habitable_zone_plot(hz_analysis: Dict[str, Any],
+                                  output_dir: str = "stratum_plots") -> None:
+    """Generate per-star-type HZ analysis plot: in-HZ vs out-of-HZ Stratum rates."""
+    Path(output_dir).mkdir(exist_ok=True)
+
+    by_type = hz_analysis['by_type']
+
+    # Only plot star types with enough data (>= 10 bodies)
+    major_types = sorted(
+        [t for t, c in by_type.items()
+         if sum(c.values()) >= 10],
+        key=lambda t: sum(by_type[t].values()),
+        reverse=True
+    )
+
+    if not major_types:
+        print("Warning: Not enough data for habitable zone plot")
+        return
+
+    n_types = len(major_types)
+    fig, axes = plt.subplots(1, n_types, figsize=(4 * n_types, 5), squeeze=False)
+    axes = axes[0]
+
+    for ax, star_type in zip(axes, major_types):
+        c = by_type[star_type]
+        in_s = c['in_hz_stratum']
+        in_o = c['in_hz_other']
+        out_s = c['out_hz_stratum']
+        out_o = c['out_hz_other']
+
+        in_total = in_s + in_o
+        out_total = out_s + out_o
+
+        bar_width = 0.35
+        x = np.array([0, 1])
+
+        bars_other = ax.bar(x - bar_width / 2, [in_o, out_o], bar_width,
+                            color='lightcoral', alpha=0.85, edgecolor='darkred',
+                            linewidth=0.4, label='Non-Stratum')
+        bars_stratum = ax.bar(x + bar_width / 2, [in_s, out_s], bar_width,
+                              color='dodgerblue', alpha=0.85, edgecolor='darkblue',
+                              linewidth=0.4, label='Stratum')
+
+        # Count annotations
+        for bar, count in zip(bars_other, [in_o, out_o]):
+            if count:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                        str(count), ha='center', va='bottom', fontsize=8, color='darkred')
+        for bar, count in zip(bars_stratum, [in_s, out_s]):
+            if count:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                        str(count), ha='center', va='bottom', fontsize=8, color='darkblue')
+
+        # Ratio annotations
+        in_rate = f"{in_s / in_total:.0%}" if in_total else "n/a"
+        out_rate = f"{out_s / out_total:.0%}" if out_total else "n/a"
+        ax.text(0, -0.12, in_rate, ha='center', va='top', fontsize=9,
+                fontweight='bold', color='green', transform=ax.get_xaxis_transform())
+        ax.text(1, -0.12, out_rate, ha='center', va='top', fontsize=9,
+                fontweight='bold', color='green', transform=ax.get_xaxis_transform())
+
+        total = in_total + out_total
+        ax.set_title(f'Type {star_type}  (n={total})', fontsize=11, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(['In HZ', 'Outside HZ'], fontsize=9)
+        ax.set_ylabel('Count', fontsize=9)
+        ax.grid(True, axis='y', alpha=0.3)
+
+    # Single legend for the whole figure
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right', fontsize=9)
+
+    fig.suptitle('Stratum vs Non-Stratum by Habitable Zone & Star Type',
+                 fontsize=13, fontweight='bold', y=1.02)
+    plt.tight_layout()
+
+    filepath = Path(output_dir) / "habitable_zone_by_star_type.png"
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Habitable zone plot saved: habitable_zone_by_star_type.png")
+
+
 def analyze_composition(data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze Ice/Rock/Metal composition for correlation with Stratum."""
     composition_types = ['Ice', 'Rock', 'Metal']
@@ -1430,6 +1598,7 @@ Plot Features:
     analyses['composition'] = analyze_composition(scan_data)
     analyses['atmosphere_composition'] = analyze_atmosphere_composition(scan_data)
     analyses['star_population'] = analyze_star_population(scan_data)
+    analyses['habitable_zone'] = analyze_habitable_zone(scan_data)
 
     # Generate and display report
     print("\n" + "="*80)
@@ -1494,6 +1663,10 @@ Plot Features:
         # Star population plots
         if 'star_population' in analyses:
             generate_star_population_plots(analyses['star_population'], args.plot_dir)
+
+        # Habitable zone plots
+        if 'habitable_zone' in analyses:
+            generate_habitable_zone_plot(analyses['habitable_zone'], args.plot_dir)
 
     print("\nAnalysis complete!")
 
