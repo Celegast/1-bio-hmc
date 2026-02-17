@@ -201,6 +201,23 @@ def get_system_age(system_data: SystemData) -> Optional[float]:
     return system_data.stars[primary_id].get('Age_MY')
 
 
+def get_system_stars(system_data: SystemData) -> List[Dict[str, Any]]:
+    """
+    Return a compact list of star info dicts for all stars in the system,
+    sorted by BodyID.
+    """
+    STAR_FIELDS = (
+        'BodyID', 'BodyName', 'StarType', 'Subclass', 'StellarMass',
+        'Age_MY', 'Luminosity', 'AbsoluteMagnitude',
+        'SurfaceTemperature', 'Radius', 'DistanceFromArrivalLS',
+    )
+    stars = []
+    for body_id in sorted(system_data.stars):
+        raw = system_data.stars[body_id]
+        stars.append({k: raw[k] for k in STAR_FIELDS if k in raw})
+    return stars
+
+
 def extract_timestamp_from_filename(filename: str) -> str:
     """
     Extract timestamp from Elite Dangerous journal filename.
@@ -338,6 +355,7 @@ def process_log_file(file_path: str, system_data: SystemData,
                                         'system_name': system_data.system_name,
                                         'system_address': system_data.system_address,
                                         'system_age_my': get_system_age(system_data),
+                                        'system_stars': get_system_stars(system_data),
                                         'body_data': body,
                                         'evaluation': evaluation,
                                         'HasStratum': has_stratum,
@@ -444,6 +462,7 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
                         'system_name': system_data.system_name,
                         'system_address': system_data.system_address,
                         'system_age_my': get_system_age(system_data),
+                        'system_stars': get_system_stars(system_data),
                         'body_data': body,
                         'evaluation': evaluation,
                         'HasStratum': has_stratum,
