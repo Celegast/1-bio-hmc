@@ -37,6 +37,7 @@ class SystemData:
         self.system_address: Optional[int] = None
         self.bodies: Dict[int, Dict[str, Any]] = {}  # BodyID -> body data
         self.biological_signals: Dict[int, int] = {}  # BodyID -> signal count
+        self.has_geo_signals: set = set()  # BodyIDs that also have geological signals
         self.genus_info: Dict[int, str] = {}  # BodyID -> genus name (Stratum, Bacterium, etc.)
         self.stars: Dict[int, Dict[str, Any]] = {}  # BodyID -> star data
 
@@ -46,6 +47,7 @@ class SystemData:
         self.system_address = None
         self.bodies.clear()
         self.biological_signals.clear()
+        self.has_geo_signals.clear()
         self.genus_info.clear()
         self.stars.clear()
 
@@ -303,11 +305,9 @@ def process_log_file(file_path: str, system_data: SystemData,
                                 geo_count = signal.get('Count', 0)
 
                         if body_id is not None and bio_count > 0:
+                            system_data.biological_signals[body_id] = bio_count
                             if geo_count > 0:
-                                # Most likely a Horizons bio
-                                system_data.biological_signals[body_id] = 0
-                            else:
-                                system_data.biological_signals[body_id] = bio_count
+                                system_data.has_geo_signals.add(body_id)
 
                     # Collect genus information from SAA signals (comes after SAAScanComplete)
                     elif event == 'SAASignalsFound':
@@ -331,6 +331,39 @@ def process_log_file(file_path: str, system_data: SystemData,
                                         candidate['genus'] = genus_localised
                                         break
 
+                                # Retroactively evaluate geo bodies that were skipped
+                                # at SAAScanComplete because genus wasn't known yet
+                                if (body_id in system_data.has_geo_signals and
+                                    genus_localised.lower() in ('stratum', 'bacterium') and
+                                    body_id in system_data.bodies):
+                                    # Check not already added
+                                    already = any(
+                                        c['body_data'].get('BodyID') == body_id and
+                                        c.get('system_address') == system_data.system_address
+                                        for c in candidates)
+                                    if not already:
+                                        body = system_data.bodies[body_id]
+                                        bio_count = system_data.biological_signals.get(body_id, 0)
+                                        evaluation = evaluate_stratum_candidate(
+                                            body, system_data, bio_count)
+                                        if evaluation['is_candidate']:
+                                            has_stratum = genus_localised.lower() == 'stratum'
+                                            candidate_info = {
+                                                'body_name': body.get('BodyName'),
+                                                'system_name': system_data.system_name,
+                                                'system_address': system_data.system_address,
+                                                'system_age_my': get_system_age(system_data),
+                                                'system_stars': get_system_stars(system_data),
+                                                'body_data': body,
+                                                'evaluation': evaluation,
+                                                'HasStratum': has_stratum,
+                                                'genus': genus_localised,
+                                                'source_file': file_path,
+                                                'line_number': line_number
+                                            }
+                                            candidates.append(candidate_info)
+                                            new_candidates_count += 1
+
                     # When SAA scan completes, evaluate the body
                     elif event == 'SAAScanComplete':
                         body_id = entry.get('BodyID')
@@ -339,14 +372,18 @@ def process_log_file(file_path: str, system_data: SystemData,
                         if body_id in system_data.biological_signals:
                             bio_count = system_data.biological_signals[body_id]
 
+                            # Bodies with geo signals are likely Horizons bios —
+                            # only include them if genus is confirmed Stratum/Bacterium
+                            if body_id in system_data.has_geo_signals:
+                                genus = system_data.genus_info.get(body_id, '')
+                                if genus.lower() not in ('stratum', 'bacterium'):
+                                    continue
+
                             if body_id in system_data.bodies:
                                 body = system_data.bodies[body_id]
-                                # print(f"Evaluating {body.get('BodyName')}")
                                 evaluation = evaluate_stratum_candidate(body, system_data, bio_count)
 
                                 if evaluation['is_candidate']:
-                                    #print(f"  is candidate")
-                                    # Determine HasStratum based on genus (may be updated later by SAASignalsFound)
                                     genus = system_data.genus_info.get(body_id, '')
                                     has_stratum = genus.lower() == 'stratum' if genus else False
 
@@ -450,6 +487,12 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
                     break
 
             if not already_exists:
+                # Skip geo-signal bodies unless genus confirmed as stratum/bacterium
+                if body_id in system_data.has_geo_signals:
+                    genus = system_data.genus_info.get(body_id, '')
+                    if genus.lower() not in ('stratum', 'bacterium'):
+                        continue
+
                 evaluation = evaluate_stratum_candidate(body, system_data, bio_count)
 
                 if evaluation['is_candidate']:

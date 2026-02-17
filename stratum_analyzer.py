@@ -841,6 +841,16 @@ def generate_correlation_matrix(plot_data: Dict[str, Dict[str, List[float]]],
         print(f"Correlation matrix saved: {filename}")
 
 
+def _gaussian_smooth(x, y, xs, sigma_frac=0.04):
+    """Gaussian-weighted moving average. sigma_frac is sigma as a fraction of the x range."""
+    sigma = (x.max() - x.min()) * sigma_frac
+    ys = np.empty_like(xs)
+    for i, xi in enumerate(xs):
+        weights = np.exp(-0.5 * ((x - xi) / sigma) ** 2)
+        ys[i] = np.average(y, weights=weights)
+    return ys
+
+
 def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, Dict[str, List[float]]],
                                output_dir: str = "stratum_plots", output_file: Optional[str] = None) -> None:
     """
@@ -896,10 +906,32 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
                 ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                          str(int(count)), ha='center', va='bottom', fontsize=5, color='darkblue')
 
+        # Stratum ratio curve on secondary y-axis
+        ax1_ratio = ax1.twinx()
+        total = n_in + n_out
+        with np.errstate(invalid='ignore'):
+            ratio = np.where(total > 0, n_in / total, np.nan)
+        mask = total > 0
+        ax1_ratio.scatter(bin_centers[mask], ratio[mask], color='green',
+                          s=10, alpha=0.3, zorder=3)
+        # Smooth trend line via Gaussian-weighted moving average
+        xm, ym = bin_centers[mask], ratio[mask]
+        if len(xm) >= 4:
+            xs = np.linspace(xm.min(), xm.max(), 200)
+            ys = _gaussian_smooth(xm, ym, xs)
+            ax1_ratio.plot(xs, np.clip(ys, 0, 1),
+                           color='green', linewidth=1.2, alpha=0.4, label='Stratum ratio')
+        ax1_ratio.set_ylabel('Stratum Ratio', color='green', fontsize=9)
+        ax1_ratio.set_ylim(0, 1)
+        ax1_ratio.tick_params(axis='y', labelcolor='green', labelsize=7)
+
         ax1.set_xlabel(feature_labels[feature])
         ax1.set_ylabel('Count')
         ax1.set_title(f'Distribution Comparison: {feature_labels[feature]}')
-        ax1.legend()
+        # Combine legends from both axes
+        h1, l1 = ax1.get_legend_handles_labels()
+        h2, l2 = ax1_ratio.get_legend_handles_labels()
+        ax1.legend(h1 + h2, l1 + l2, fontsize=8)
         ax1.grid(True, alpha=0.3)
 
         # Box plot comparison
@@ -998,6 +1030,26 @@ def generate_age_histogram(data: List[Dict[str, Any]],
                label='Other genus', color='wheat', alpha=0.85,
                edgecolor='goldenrod', linewidth=0.4)
 
+    # Stratum ratio curve on secondary y-axis
+    ax_ratio = ax.twinx()
+    s_arr = np.array(stratum_counts)
+    b_arr = np.array(bacterium_counts) + np.array(other_counts)
+    total_arr = s_arr + b_arr
+    ratio = np.where(total_arr > 0, s_arr / total_arr, np.nan)
+    mask = total_arr > 0
+    ax_ratio.scatter(x[mask], ratio[mask], color='green',
+                      s=10, alpha=0.3, zorder=3)
+    # Smooth trend line via Gaussian-weighted moving average
+    xm, ym = x[mask], ratio[mask]
+    if len(xm) >= 4:
+        xs = np.linspace(xm.min(), xm.max(), 200)
+        ys = _gaussian_smooth(xm, ym, xs)
+        ax_ratio.plot(xs, np.clip(ys, 0, 1),
+                      color='green', linewidth=1.2, alpha=0.4, label='Stratum ratio')
+    ax_ratio.set_ylabel('Stratum Ratio', color='green', fontsize=9)
+    ax_ratio.set_ylim(0, 1)
+    ax_ratio.tick_params(axis='y', labelcolor='green', labelsize=7)
+
     ax.set_xlabel('System Age (MY)', fontsize=10)
     ax.set_ylabel('Candidates', fontsize=10)
     ax.set_title('Stratum vs Bacterium Candidates by System Age (500 MY bins)',
@@ -1008,7 +1060,10 @@ def generate_age_histogram(data: List[Dict[str, Any]],
         rotation=60, ha='right', fontsize=7
     )
     ax.tick_params(axis='y', labelsize=8)
-    ax.legend(fontsize=9)
+    # Combine legends from both axes
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax_ratio.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, fontsize=9)
     ax.grid(True, axis='y', alpha=0.3, linestyle='--')
 
     # Annotate count above each bar (skip zeros)
