@@ -678,14 +678,18 @@ def analyze_habitable_zone(data: List[Dict[str, Any]]) -> Dict[str, Any]:
         if abs_mag is None:
             continue
 
-        sma = entry.get('SemiMajorAxis')
-        if not sma or sma <= 0:
-            continue
+        # Use pre-computed stellar distance (correctly handles moons / barycenter orbits)
+        # falling back to raw SemiMajorAxis for older finder outputs that lack the field
+        distance_au = entry.get('stellar_distance_au')
+        if distance_au is None:
+            sma = entry.get('SemiMajorAxis')
+            if not sma or sma <= 0:
+                continue
+            distance_au = sma / AU_METERS
 
         luminosity = 10 ** ((SUN_ABS_MAG - abs_mag) / 2.5)  # solar luminosities
         hz_inner = math.sqrt(luminosity / HZ_INNER_COEFF)     # AU
         hz_outer = math.sqrt(luminosity / HZ_OUTER_COEFF)     # AU
-        distance_au = sma / AU_METERS
 
         in_hz = hz_inner <= distance_au <= hz_outer
         has_stratum = entry.get('HasStratum', False)

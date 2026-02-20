@@ -230,6 +230,64 @@ def _lookup_he_pct(system_address: Optional[int],
     return None
 
 
+_AU_METERS = 1.496e11
+
+
+_MIN_STELLAR_DIST_AU = 0.05  # below this the parent is likely a co-orbital barycenter
+_LS_PER_AU = 499.0           # light-seconds per AU
+
+
+def compute_stellar_distance_au(body: Dict[str, Any],
+                                 system_data: SystemData,
+                                 _depth: int = 0) -> Optional[float]:
+    """Return the body's approximate distance from its host star in AU.
+
+    For direct star or barycenter orbits the body's own SemiMajorAxis is used.
+    For moons (Planet as direct parent) we walk up to the parent planet and use
+    its stellar distance instead, since the moon's SMA is only its tiny orbit
+    around the planet, not its distance from the star.
+
+    Edge case — binary-planet moons: when the parent planet itself orbits a
+    co-orbital barycenter (very small SMA, < _MIN_STELLAR_DIST_AU), the planet
+    is essentially AT the barycenter.  We then fall back to the parent planet's
+    DistanceFromArrivalLS as a proxy for its distance from the primary star.
+    """
+    if _depth > 5:          # guard against pathological chains
+        return None
+
+    sma = body.get('SemiMajorAxis')
+    parents = body.get('Parents', [])
+    if not parents or sma is None:
+        return sma / _AU_METERS if sma else None
+
+    parent = parents[0]
+
+    if 'Star' in parent or 'Null' in parent:
+        # Direct star orbit or barycenter orbit — SMA is a good stellar distance
+        return sma / _AU_METERS
+
+    if 'Planet' in parent:
+        # Moon: stellar distance ≈ parent planet's stellar distance
+        parent_body = system_data.bodies.get(parent['Planet'])
+        if parent_body is not None:
+            parent_stellar = compute_stellar_distance_au(
+                parent_body, system_data, _depth + 1)
+            if parent_stellar is not None and parent_stellar >= _MIN_STELLAR_DIST_AU:
+                return parent_stellar
+            # Binary-planet case: parent has tiny SMA around a co-orbital barycenter.
+            # DistanceFromArrivalLS of the parent ≈ barycenter distance from primary star.
+            dist_ls = parent_body.get('DistanceFromArrivalLS')
+            if dist_ls and dist_ls > 0:
+                return dist_ls / _LS_PER_AU
+        # Parent not yet scanned — fall back to own DistanceFromArrivalLS
+        dist_ls = body.get('DistanceFromArrivalLS')
+        if dist_ls and dist_ls > 0:
+            return dist_ls / _LS_PER_AU
+        return sma / _AU_METERS
+
+    return sma / _AU_METERS
+
+
 def get_system_stars(system_data: SystemData) -> List[Dict[str, Any]]:
     """
     Return a compact list of star info dicts for all stars in the system,
@@ -401,6 +459,8 @@ def process_log_file(file_path: str, system_data: SystemData,
                                                 'genus': genus_localised,
                                                 'source_file': file_path,
                                                 'line_number': line_number,
+                                                'stellar_distance_au': compute_stellar_distance_au(
+                                                    body, system_data),
                                                 'nearest_gg_he_pct': _lookup_he_pct(
                                                     system_data.system_address,
                                                     system_data.system_name,
@@ -444,6 +504,8 @@ def process_log_file(file_path: str, system_data: SystemData,
                                         'genus': genus if genus else 'Unknown',
                                         'source_file': file_path,
                                         'line_number': line_number,
+                                        'stellar_distance_au': compute_stellar_distance_au(
+                                            body, system_data),
                                         'nearest_gg_he_pct': _lookup_he_pct(
                                             system_data.system_address,
                                             system_data.system_name,
@@ -564,6 +626,8 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
                         'genus': genus if genus else 'Unknown',
                         'source_file': 'end_of_directory',
                         'line_number': 'end_of_directory',
+                        'stellar_distance_au': compute_stellar_distance_au(
+                            body, system_data),
                         'nearest_gg_he_pct': _lookup_he_pct(
                             system_data.system_address,
                             system_data.system_name,
