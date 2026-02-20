@@ -831,7 +831,7 @@ def extract_plot_data(data: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[fl
         'radius': 'Radius',
         'gravity': 'SurfaceGravity',
         'temperature': 'SurfaceTemperature',
-        'pressure': 'SurfacePressure'
+        'pressure': 'SurfacePressure',
     }
 
     plot_data = {
@@ -865,7 +865,7 @@ def generate_2d_plots(plot_data: Dict[str, Dict[str, List[float]]],
         'radius': 'Radius (m)',
         'gravity': 'Surface Gravity (g)',
         'temperature': 'Surface Temperature (K)',
-        'pressure': 'Surface Pressure (Pa)'
+        'pressure': 'Surface Pressure (Pa)',
     }
 
     # Set up the plotting style
@@ -961,7 +961,7 @@ def generate_correlation_matrix(plot_data: Dict[str, Dict[str, List[float]]],
         'radius': 'Radius',
         'gravity': 'Gravity',
         'temperature': 'Temperature',
-        'pressure': 'Pressure'
+        'pressure': 'Pressure',
     }
 
     Path(output_dir).mkdir(exist_ok=True)
@@ -1032,7 +1032,8 @@ def generate_distribution_plots(analyses: Dict[str, Any], plot_data: Dict[str, D
         'radius': 'Radius (m)',
         'gravity': 'Surface Gravity (g)',
         'temperature': 'Surface Temperature (K)',
-        'pressure': 'Surface Pressure (Pa)'
+        'pressure': 'Surface Pressure (Pa)',
+        'he_pct': 'He% (Metallicity)',
     }
 
     print("Generating distribution comparison plots...")
@@ -1297,7 +1298,7 @@ def generate_report(analyses: Dict[str, Any], output_file: Optional[str] = None)
     # Numerical features
     numerical_features = [
         'mass_em', 'radius', 'surface_gravity', 'surface_temperature',
-        'surface_pressure', 'orbital_period'
+        'surface_pressure', 'orbital_period', 'he_pct'
     ]
 
     for feature in numerical_features:
@@ -1589,6 +1590,7 @@ Plot Features:
     analyses['surface_temperature'] = analyze_numerical_feature(scan_data, "Surface Temperature", ['SurfaceTemperature'])
     analyses['surface_pressure'] = analyze_numerical_feature(scan_data, "Surface Pressure", ['SurfacePressure'])
     analyses['orbital_period'] = analyze_numerical_feature(scan_data, "Orbital Period", ['OrbitalPeriod'])
+    analyses['he_pct'] = analyze_numerical_feature(scan_data, "He% (Metallicity)", ['nearest_gg_he_pct'])
 
     # Range features
     analyses['temperature_range'] = analyze_range_feature(scan_data, "Temperature Range", ["SurfaceTemperature"], (165.0, 200.0))
@@ -1624,6 +1626,21 @@ Plot Features:
         print("\nExtracting plot data...")
         plot_data = extract_plot_data(scan_data)
 
+        # Build a distribution-only version of plot_data that includes he_pct.
+        # he_pct has sparse coverage so it's kept separate from the paired 2D
+        # scatter / correlation data (which require equal-length arrays).
+        dist_plot_data = {
+            'with_stratum': dict(plot_data['with_stratum']),
+            'without_stratum': dict(plot_data['without_stratum']),
+        }
+        for cat in ('with_stratum', 'without_stratum'):
+            dist_plot_data[cat]['he_pct'] = []
+        for entry in scan_data:
+            val = entry.get('nearest_gg_he_pct')
+            if isinstance(val, (int, float)):
+                cat = 'with_stratum' if entry.get('HasStratum') else 'without_stratum'
+                dist_plot_data[cat]['he_pct'].append(val)
+
         # Check if we have sufficient data
         total_with = sum(len(values) for values in plot_data['with_stratum'].values())
         total_without = sum(len(values) for values in plot_data['without_stratum'].values())
@@ -1647,7 +1664,7 @@ Plot Features:
 
             # Generate distribution plots
             if not args.no_distributions:
-                generate_distribution_plots(analyses, plot_data, args.plot_dir)
+                generate_distribution_plots(analyses, dist_plot_data, args.plot_dir)
 
         # Age histogram uses raw scan_data directly (not plot_data)
         if not args.no_age_histogram:

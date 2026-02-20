@@ -6,6 +6,7 @@ likely candidates for Stratum Tectonicas based on biological signals and planeta
 """
 
 import json
+import re
 import argparse
 import sys
 from pathlib import Path
@@ -203,6 +204,32 @@ def get_system_age(system_data: SystemData) -> Optional[float]:
     return system_data.stars[primary_id].get('Age_MY')
 
 
+def get_boxel(system_name: str) -> str:
+    """Extract the boxel identifier (name prefix shared by neighbouring systems).
+
+    Strips the last numeric segment from the system name:
+        'Pueloe BZ-A d123'    -> 'Pueloe BZ-A d'
+        'Byua Aim XV-U d3-9'  -> 'Byua Aim XV-U d3'
+    """
+    return re.sub(r'-\d+$|\d+$', '', system_name)
+
+
+def _lookup_he_pct(system_address: Optional[int],
+                   system_name: Optional[str],
+                   helium_by_system: Dict[int, List[float]],
+                   helium_by_boxel: Dict[str, List[float]]) -> Optional[float]:
+    """Return mean He% for a system, falling back to boxel average."""
+    if system_address is not None:
+        vals = helium_by_system.get(system_address)
+        if vals:
+            return sum(vals) / len(vals)
+    if system_name:
+        vals = helium_by_boxel.get(get_boxel(system_name))
+        if vals:
+            return sum(vals) / len(vals)
+    return None
+
+
 def get_system_stars(system_data: SystemData) -> List[Dict[str, Any]]:
     """
     Return a compact list of star info dicts for all stars in the system,
@@ -240,7 +267,9 @@ def extract_timestamp_from_filename(filename: str) -> str:
 
 
 def process_log_file(file_path: str, system_data: SystemData,
-                     candidates: List[Dict[str, Any]]) -> int:
+                     candidates: List[Dict[str, Any]],
+                     helium_by_system: Dict[int, List[float]],
+                     helium_by_boxel: Dict[str, List[float]]) -> int:
     """
     Process a single log file and find Stratum candidates.
     System data is preserved across files.
@@ -289,6 +318,18 @@ def process_log_file(file_path: str, system_data: SystemData,
                         elif 'PlanetClass' in entry:
                             if body_id is not None:
                                 system_data.bodies[body_id] = entry
+                                # Collect He% from gas giants for boxel metallicity index
+                                if 'gas giant' in entry.get('PlanetClass', '').lower():
+                                    for comp in entry.get('AtmosphereComposition', []):
+                                        if comp.get('Name', '').lower() == 'helium':
+                                            he = comp['Percent']
+                                            if system_data.system_address is not None:
+                                                helium_by_system.setdefault(
+                                                    system_data.system_address, []).append(he)
+                                            if system_data.system_name:
+                                                helium_by_boxel.setdefault(
+                                                    get_boxel(system_data.system_name), []).append(he)
+                                            break
 
                     # Collect biological signal data
                     elif event == 'FSSBodySignals':
@@ -359,7 +400,11 @@ def process_log_file(file_path: str, system_data: SystemData,
                                                 'HasStratum': has_stratum,
                                                 'genus': genus_localised,
                                                 'source_file': file_path,
-                                                'line_number': line_number
+                                                'line_number': line_number,
+                                                'nearest_gg_he_pct': _lookup_he_pct(
+                                                    system_data.system_address,
+                                                    system_data.system_name,
+                                                    helium_by_system, helium_by_boxel),
                                             }
                                             candidates.append(candidate_info)
                                             new_candidates_count += 1
@@ -398,7 +443,11 @@ def process_log_file(file_path: str, system_data: SystemData,
                                         'HasStratum': has_stratum,
                                         'genus': genus if genus else 'Unknown',
                                         'source_file': file_path,
-                                        'line_number': line_number
+                                        'line_number': line_number,
+                                        'nearest_gg_he_pct': _lookup_he_pct(
+                                            system_data.system_address,
+                                            system_data.system_name,
+                                            helium_by_system, helium_by_boxel),
                                     }
                                     candidates.append(candidate_info)
                                     new_candidates_count += 1
@@ -431,6 +480,8 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
     """
     all_candidates = []
     system_data = SystemData()  # Shared system data across all files
+    helium_by_system: Dict[int, List[float]] = {}   # system_address -> [he_pct, ...]
+    helium_by_boxel:  Dict[str, List[float]] = {}   # boxel          -> [he_pct, ...]
     log_dir = Path(directory)
 
     if not log_dir.exists():
@@ -468,7 +519,8 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
         if verbose:
             print(f"Processing: {log_file.name}")
 
-        new_count = process_log_file(str(log_file), system_data, all_candidates)
+        new_count = process_log_file(str(log_file), system_data, all_candidates,
+                                     helium_by_system, helium_by_boxel)
 
         if new_count > 0 and verbose:
             print(f"  Found {new_count} new candidate(s)")
@@ -511,9 +563,21 @@ def process_log_directory(directory: str, file_pattern: str = "*.log",
                         'HasStratum': has_stratum,
                         'genus': genus if genus else 'Unknown',
                         'source_file': 'end_of_directory',
-                        'line_number': 'end_of_directory'
+                        'line_number': 'end_of_directory',
+                        'nearest_gg_he_pct': _lookup_he_pct(
+                            system_data.system_address,
+                            system_data.system_name,
+                            helium_by_system, helium_by_boxel),
                     }
                     all_candidates.append(candidate_info)
+
+    # Post-processing: fill in He% for any candidate whose gas giant was
+    # scanned after SAAScanComplete (rare), or via boxel from other systems
+    for c in all_candidates:
+        if c.get('nearest_gg_he_pct') is None:
+            c['nearest_gg_he_pct'] = _lookup_he_pct(
+                c.get('system_address'), c.get('system_name'),
+                helium_by_system, helium_by_boxel)
 
     return all_candidates
 
@@ -716,7 +780,10 @@ Examples:
     if args.file:
         system_data = SystemData()
         all_candidates = []
-        process_log_file(args.file, system_data, all_candidates)
+        helium_by_system: Dict[int, List[float]] = {}
+        helium_by_boxel: Dict[str, List[float]] = {}
+        process_log_file(args.file, system_data, all_candidates,
+                         helium_by_system, helium_by_boxel)
         candidates = all_candidates
     else:
         candidates = process_log_directory(args.directory, args.pattern, args.verbose,
